@@ -1,0 +1,134 @@
+---
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+#Project Title - PML_Project
+#Creator - James Cooksley
+#Date - JAN, 2018
+**Inroduction:**
+
+**Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways**
+
+**Load in all the packages that are needed in the study:**
+```{R}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+```
+
+**Training data**
+```{R}
+data.train<- read.csv("C://Users//u182335//Documents//DataScience//Course 7 Week 4//pml-training.csv", na.strings = c("NA", "#DIV/0!", ""))
+```
+
+**Testing data**
+```{R}
+data.test<- read.csv("C://Users//u182335//Documents//DataScience//Course 7 Week 4//pml-testing.csv", na.strings = c("NA", "#DIV/0!", ""))
+```
+
+**Take a look at basic distributions of data:**
+```{R}
+dim(data.train)
+str(data.train)
+```
+
+**Data Transformation: Convert the date and additional variable (Day) for plots**
+```{R}
+data.train$cvtd_timestamp<- as.Date(data.train$cvtd_timestamp, format = "%m/%d/%Y %H:%M")
+data.train$Day<-factor(weekdays(data.train$cvtd_timestamp))
+```
+
+**Exploratory data analysis for a better understanding of the data**
+```{R}
+table(data.train$classe)
+prop.table(table(data.train$classe))
+prop.table(table(data.train$user_name))
+prop.table(table(data.train$user_name,data.train$classe),1)
+prop.table(table(data.train$user_name,data.train$classe),2)
+prop.table(table(data.train$classe, data.train$Day),1)
+qplot(x=Day, fill=classe, data = data.train)
+ggplot(data.train, aes(x=Day, fill=classe))+geom_bar(position="dodge")
+```
+
+**Initial key findings from the exploratory data analysis:**
+** - A. The most frequently used activity is Class-A (28.4%) which is most frequently used by Jeremy**
+** - B. The most frequent user across acitivities is Adelmo (19.8%) and they are the most frequent user of Class-C**
+** - C. Most activities are held on a Saturday and Classes A and B are the most frequently used**
+
+**Data Cleansing:**
+**Remove columns with NA or missing values**
+```{R}
+data.train <- data.train[, colSums(is.na(data.train)) == 0]
+data.test <- data.test[, colSums(is.na(data.test)) == 0]
+```
+
+**Remove any of the columns that are no longer relevant to accelerometer measurements**
+```{R}
+classe<- data.train$classe
+trainRemove<- grepl("^X|timestamp|window", names(data.train))
+data.train<- data.train[, !trainRemove]
+trainCleaned<- data.train[, sapply(data.train, is.numeric)]
+trainCleaned$classe<- classe
+testRemove<- grepl("^X|timestamp|window", names(data.test))
+data.test<- data.test[, !testRemove]
+testCleaned<- data.test[, sapply(data.test, is.numeric)]
+```
+
+**Cleansed data contains 19622 observations and 53 variables in both the training and testing datasets**
+**Create Training and Testing data sets using a randomly assigned seed to get a random sample:**
+```{R}
+set.seed(68464)
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+**Data Modelling:**
+**Indetifying significant variables:**
+**By using Random Forest algorithm we will fit a predictive model to identify important variables and removes multicollinearity/outliers. 5-fold cross validation will be included when applying the algorithm**
+```{R}
+controlRf <- trainControl(method="cv", 5)
+rfmod<- train(classe ~., data=trainData, method="rf", trControl=controlRf, importance=TRUE, ntree=100)
+rfmod
+```
+
+**Understand the accuracy of the model on Validation data:**
+```{R}
+predictRfmod<- predict(rfmod, testData)
+confusionMatrix(testData$classe, predictRfmod)
+
+accuracy <- postResample(predictRfmod, testData$classe)
+accuracy
+
+Error <- 1 - as.numeric(confusionMatrix(testData$classe, predictRfmod)$overall[1])
+Error
+```
+
+**Results:**
+**The estimated accuracy of the model is 99.2% and the estimated out-of-sample error is 0.8%**
+
+**Predicting the test data**
+```{R}
+result <- predict(rfmod, testCleaned[, -length(names(testCleaned))])
+result
+```
+
+**Appendix**
+**Create the correlation matrix**
+```{R}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method="circle")
+```
+
+**Plot the decision tree to help visualise the end result**
+```{R}
+rtree<- rpart(classe ~ ., data=trainData, method="class")
+prp(rtree)
+```
